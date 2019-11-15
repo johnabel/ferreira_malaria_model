@@ -8,5 +8,4 @@ Modeling work for Ferriera et al., in review. This code was written in Python
 | scipy | 1.2.1 |
 | matplotlib | 2.2.3 |
 | CasADi | 2.3.0 |
-| gillespy | 1.1 |
 | pandas | 0.23.4 |
