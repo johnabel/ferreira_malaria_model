@@ -29,8 +29,7 @@ This modeling was done in python 2.7 with cassadi 2.3.0
 
 
 TODO:
-- find period without coupling term
-- edit to norm WT and FB correctly
+
 """
 
 # common imports
@@ -41,21 +40,22 @@ import numpy as np
 import casadi as cs
 
 modelversion = 'malaria_model'
+num_parasites = 100
 
 # constants and equations setup, trying a new method
-EqCount = 9
+EqCount = 5 + num_parasites*4
 ParamCount  = 20
 
 param = [  0.7,    1,    0.35,    1,  0.7, 0.35,   
              1,  0.7, 0.35,    1, 0.35,    1,    1,
            0.4,    1,  0.5]
-y0in = np.array([ 0.05069219,  0.10174506,  2.28099242, 0.01522458,
-                  0.01522458, 
-                  0.05069219,  0.10174506,  2.28099242, 0.01522458])
+y0in = np.hstack([ [0.05069219,  0.10174506,  2.28099242, 0.01522458,
+                  0.01522458], 
+            num_parasites*[0.05069219,  0.10174506,  2.28099242, 0.01522458]])
 
 # periods so as to get the time right
 gonze_period = 30.27
-malaria_period = 24.2
+malaria_periods = np.random.normal(24.2, 1.3, num_parasites)
 WT_period = 23.7
 FB_period = 25.7
 
@@ -65,7 +65,7 @@ def malaria_model(light_schedule, mouse_signal, mouse_feeding, mouse_genotype,  
     Malaria model of mouse-parasite circadian interation.
     light_schedule = ('DD', 'LD')
     mouse_signal = ('food', 'brain')
-    mouse_feeding = ('AdLib', 'SpreadOut')
+    mouse_feeding = ('AdLib', 'Ultradian')
     mouse_genotype = ('WT', 'FB', 'YY')
     malaria_intrinsic = (True, False)
 
@@ -171,13 +171,22 @@ def malaria_model(light_schedule, mouse_signal, mouse_feeding, mouse_genotype,  
     # for brain to malaria signal
     B1 = cs.SX.sym('B1')
 
-    # for malaria
-    M1 = cs.SX.sym('M1')
-    M2 = cs.SX.sym('M2')
-    M3 = cs.SX.sym('M3')
-    M4 = cs.SX.sym('M4')
+    state_list = [X1, X2, X3, X4, B1]
+    state_dict = {'X1':X1, 'X2':X2, 'X3':X3, 'X4':X4, 'B1':B1}
     
-    state_set = cs.vertcat([X1, X2, X3, X4, B1, M1, M2, M3, M4])
+    # build parasite states
+    for pi in range(num_parasites):
+        M1 = cs.SX.sym('M1_'+str(pi))
+        M2 = cs.SX.sym('M2_'+str(pi))
+        M3 = cs.SX.sym('M3_'+str(pi))
+        M4 = cs.SX.sym('M4_'+str(pi))
+        state_list += [M1, M2, M3, M4]
+        state_dict['M1_'+str(pi)] = M1
+        state_dict['M2_'+str(pi)] = M2
+        state_dict['M3_'+str(pi)] = M3
+        state_dict['M4_'+str(pi)] = M4
+    
+    state_set = cs.vertcat(state_list)
 
     # Parameter Assignments
     v1  = cs.SX.sym('v1')
@@ -213,15 +222,20 @@ def malaria_model(light_schedule, mouse_signal, mouse_feeding, mouse_genotype,  
     # mouse signal from brain to parasite
     ode[4] = gonze_period/mouse_period*(k7*(X1) - v8*B1/(K8+B1))
 
-    # parasite states 1, 2, 3, 4 (same as mouse 1-4)
-    ode[5] = gonze_period/malaria_period*(v1*K1**nm/(K1**nm + M3**nm) \
-             - v2*(M1)/(K2+M1) + (1/(1+bs))*vc*K*((M4))/(Kc +K*(M4)) \
-             + (bs/(1+bs))*vc*K*((B1))/(Kc +K*(B1)) ) \
-             + feed_signal*F
-    ode[6] = gonze_period/malaria_period*(k3*(M1) - v4*M2/(K4+M2))
-    ode[7] = gonze_period/malaria_period*(k5*M2 - v6*M3/(K6+M3))
-    ode[8] = gonze_period/malaria_period*(k7*(M1) - v8*M4/(K8+M4))
-
+    for pi in range(num_parasites):
+        idx = pi*4+5
+        M1 = state_dict['M1_'+str(pi)]
+        M2 = state_dict['M2_'+str(pi)]
+        M3 = state_dict['M3_'+str(pi)]
+        M4 = state_dict['M4_'+str(pi)]
+        # parasite states 1, 2, 3, 4 (same as mouse 1-4)
+        ode[idx] = gonze_period/malaria_periods[pi]*(v1*K1**nm/(K1**nm + M3**nm) \
+                - v2*(M1)/(K2+M1) + (1/(1+bs))*vc*K*((M4))/(Kc +K*(M4)) \
+                + (bs/(1+bs))*vc*K*((B1))/(Kc +K*(B1)) ) \
+                + feed_signal*F
+        ode[idx+1] = gonze_period/malaria_periods[pi]*(k3*(M1) - v4*M2/(K4+M2))
+        ode[idx+2] = gonze_period/malaria_periods[pi]*(k5*M2 - v6*M3/(K6+M3))
+        ode[idx+3] = gonze_period/malaria_periods[pi]*(k7*(M1) - v8*M4/(K8+M4))
 
     ode = cs.vertcat(ode)
 
